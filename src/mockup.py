@@ -461,7 +461,9 @@ class Game:
         self.obstacles.append(RectObstacle(420, 260, 40, 200))
         # line segments as thin rails
         self.obstacles.append(SegmentObstacle(80, 140, 300, 140))
+        # diagonal lines forming a problematic V shape
         self.obstacles.append(SegmentObstacle(600, 460, 820, 520))
+        self.obstacles.append(SegmentObstacle(600, 460, 820, 620))
         # additional diagonal lines
         self.obstacles.append(SegmentObstacle(200, 50, 400, 250))
         self.obstacles.append(SegmentObstacle(650, 300, 750, 100))
