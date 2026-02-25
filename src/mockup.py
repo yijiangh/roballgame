@@ -457,6 +457,10 @@ class Game:
         # line segments as thin rails
         self.obstacles.append(SegmentObstacle(80, 140, 300, 140))
         self.obstacles.append(SegmentObstacle(600, 460, 820, 520))
+        # additional diagonal lines
+        self.obstacles.append(SegmentObstacle(200, 50, 400, 250))
+        self.obstacles.append(SegmentObstacle(650, 300, 750, 100))
+        self.obstacles.append(SegmentObstacle(100, 480, 350, 350))
 
     def on_key_down(self, e):
         """Key-press handler. Input: Tk event e with e.keysym."""
