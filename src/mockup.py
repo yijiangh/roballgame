@@ -270,7 +270,7 @@ class Game:
         slow_scale = tk.Scale(
             self.controls,
             variable=self.slow_var,
-            from_=30,
+            from_=5,
             to=260,
             resolution=1,
             orient="horizontal",
@@ -492,9 +492,28 @@ class Game:
             v_next = vec_add(v_cmd, repulse)
 
         elif self.mode == 3:
-            into = -vec_dot(v_cmd, n)
-            if into > 0:
-                v_next = vec_add(v_cmd, vec_mul(n, into))
+            # PROJECT NORMAL mode: Remove only the velocity component directed into obstacles
+            # Apply projection against ALL obstacles within slow_dist for proper corner handling
+            # 
+            # This ensures that at concave corners (e.g., between two walls), projections
+            # from both obstacles are applied, preventing clipping through either surface.
+            # 
+            # For each nearby obstacle:
+            # - Compute the surface normal vector 'n' pointing outward from the obstacle
+            # - Calculate into = -dot(v_next, n): magnitude of motion TOWARD the obstacle
+            # - If into > 0, the agent is moving into the obstacle
+            # - Apply correction: v_next += n * into, canceling the inward component
+            # 
+            # Result: Smooth tangential sliding along surfaces, proper multi-surface handling,
+            # no barrier effect at distance (only activates within slow_dist)
+            v_next = v_cmd
+            p = (self.dot[0], self.dot[1])
+            for obs in self.obstacles:
+                d_obs, n_obs = obs.dist_and_normal(p)
+                if d_obs < self.slow_dist:  # Only activate when within detection range
+                    into = -vec_dot(v_next, n_obs)
+                    if into > 0:
+                        v_next = vec_add(v_next, vec_mul(n_obs, into))
 
         elif self.mode == 4:
             s = clamp((d - self.stop_dist) / max(1e-6, (self.slow_dist - self.stop_dist)), 0.0, 1.0)
