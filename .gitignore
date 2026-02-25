@@ -37,3 +37,4 @@ __pycache__/
 *.lol
 *.dvi
 *.ps
+.vscode/settings.json
