@@ -192,23 +192,28 @@ class RectObstacle:
         bottom = self.y + self.h + DOT_R
 
         px, py = p
-        inside_x = left <= px <= right
-        inside_y = top <= py <= bottom
+        inside_x = left < px < right
+        inside_y = top < py < bottom
 
         if inside_x and inside_y:
-            # inside expanded rect: negative distance, normal toward nearest side
+            # inside expanded rect: negative distance, normal points AWAY from obstacle
+            # to escape, the point must move in the direction opposite the obstacle interior
             d_left = px - left
             d_right = right - px
             d_top = py - top
             d_bottom = bottom - py
             dmin = min(d_left, d_right, d_top, d_bottom)
             if dmin == d_left:
-                return -d_left, (1.0, 0.0)
+                # Closest to left edge: normal points LEFT (away from obstacle)
+                return -d_left, (-1.0, 0.0)
             if dmin == d_right:
-                return -d_right, (-1.0, 0.0)
+                # Closest to right edge: normal points RIGHT (away from obstacle)
+                return -d_right, (1.0, 0.0)
             if dmin == d_top:
-                return -d_top, (0.0, 1.0)
-            return -d_bottom, (0.0, -1.0)
+                # Closest to top edge: normal points UP (away from obstacle)
+                return -d_top, (0.0, -1.0)
+            # Closest to bottom edge: normal points DOWN (away from obstacle)
+            return -d_bottom, (0.0, 1.0)
 
         # outside: compute distance to nearest point on rect
         cx = clamp(px, left, right)
