@@ -1,0 +1,4 @@
+# Minimal runtime requirements (Tkinter is part of the Python stdlib)
+
+# Figure generation
+matplotlib>=3.8

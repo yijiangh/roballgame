@@ -15,6 +15,36 @@ Controls:
 - `-` / `=`: adjust `d_stop` (contact distance)
 - `,` / `.`: adjust repulsion strength
 
+## Generate figures (matplotlib)
+Figures are generated into `docs/figures/` and included by LaTeX.
+```bash
+./scripts/generate_figs.sh
+```
+
+## Install requirements
+This project uses:
+- Python (with Tkinter for the GUI)
+- LaTeX (`pdflatex`) for the PDF
+- Matplotlib for figure generation
+
+### Option A: Homebrew (recommended on macOS)
+```bash
+brew install python@3.14 python-tk@3.14 python-matplotlib
+brew install --cask mactex
+```
+
+### Option B: Virtualenv (Python only)
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+Note: this installs matplotlib only. Tkinter still needs to be available in your Python install.
+
+## VS Code (LaTeX Workshop)
+- Make sure `pdflatex` is on PATH (restart VS Code after installing TeX).
+- Open `docs/algorithms.tex` and build with LaTeX Workshop.
+
 ## LaTeX doc
 The math is in `docs/algorithms.tex`.
 
