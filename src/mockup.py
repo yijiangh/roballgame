@@ -1,31 +1,39 @@
 import math
 import random
 try:
+    # Use tkinter for a simple desktop visualization.
     import tkinter as tk
 except ModuleNotFoundError:
+    # Allow import in environments without Tk; startup will fail with a clear error.
     tk = None
 
+# Simulation timing and playfield size.
 WIDTH = 900
 HEIGHT = 600
 FPS = 60
 DT = 1.0 / FPS
 
+# Agent movement limits.
 DOT_R = 12
 MAX_SPEED = 240.0
 ACCEL = 900.0
 
+# Distance thresholds for slowdown and stop behavior.
 SLOW_DIST = 30.0
 STOP_DIST = 1.0
 
+# Repulsive-field tuning values.
 REPEL_DIST = 160.0
 REPEL_K = 6000.0
 REPEL_MAX = 600.0
 
+# UI colors.
 BG = "#0f1218"
 FG = "#d7dde5"
 ACCENT = "#7cd4ff"
 WARN = "#ff7c7c"
 
+# Labels shown in the mode selector and HUD.
 MODE_NAMES = {
     1: "Speed Scaling",
     2: "Repulsive Field",
@@ -40,30 +48,40 @@ CLEARANCE = 2.0
 
 
 def clamp(x, a, b):
+    """Return x clamped to [a, b]. Inputs: scalar x, lower bound a, upper bound b."""
+    # Clamp x to the inclusive range [a, b].
     return max(a, min(b, x))
 
 
 def vec_len(v):
+    """Return length of vector v. Input: v as (x, y)."""
+    # 2D vector magnitude.
     return math.hypot(v[0], v[1])
 
 
 def vec_add(a, b):
+    """Return a + b. Inputs: vectors a and b as (x, y)."""
     return (a[0] + b[0], a[1] + b[1])
 
 
 def vec_sub(a, b):
+    """Return a - b. Inputs: vectors a and b as (x, y)."""
     return (a[0] - b[0], a[1] - b[1])
 
 
 def vec_mul(a, s):
+    """Return vector a scaled by s. Inputs: vector a, scalar s."""
     return (a[0] * s, a[1] * s)
 
 
 def vec_dot(a, b):
+    """Return dot product of vectors a and b. Inputs: 2D vectors."""
     return a[0] * b[0] + a[1] * b[1]
 
 
 def vec_norm(a):
+    """Return normalized vector of a. Input: vector a as (x, y)."""
+    # Return a unit vector (or zero vector for near-zero input).
     n = vec_len(a)
     if n < 1e-8:
         return (0.0, 0.0)
@@ -71,6 +89,14 @@ def vec_norm(a):
 
 
 def distance_to_obstacle(p, obs, extra_r):
+    """Distance from point p to obstacle obs expanded by extra_r.
+
+    Inputs:
+    p: point as (x, y)
+    obs: obstacle instance (circle/wall/rect/segment)
+    extra_r: radius expansion used for clearance checks
+    """
+    # Generic point-to-obstacle distance used for placement checks.
     px, py = p
     if isinstance(obs, CircleObstacle):
         dx = px - obs.x
@@ -112,11 +138,14 @@ def distance_to_obstacle(p, obs, extra_r):
 
 class CircleObstacle:
     def __init__(self, x, y, r):
+        """Create a circle obstacle. Inputs: center (x, y), radius r."""
         self.x = x
         self.y = y
         self.r = r
 
     def dist_and_normal(self, p):
+        """Signed distance and normal for point p, where p is (x, y)."""
+        # Signed distance from dot surface to circle surface, plus outward normal.
         dx = p[0] - self.x
         dy = p[1] - self.y
         d = math.hypot(dx, dy)
@@ -129,9 +158,11 @@ class CircleObstacle:
 class WallObstacle:
     # axis-aligned wall: normal points inward from boundary
     def __init__(self, side):
+        """Create a boundary wall. Input: side in {'left','right','top','bottom'}."""
         self.side = side
 
     def dist_and_normal(self, p):
+        """Signed distance and inward normal for point p, where p is (x, y)."""
         if self.side == "left":
             return p[0] - DOT_R, (1.0, 0.0)
         if self.side == "right":
@@ -146,12 +177,14 @@ class WallObstacle:
 class RectObstacle:
     # axis-aligned rectangle
     def __init__(self, x, y, w, h):
+        """Create axis-aligned rectangle. Inputs: top-left (x, y), width w, height h."""
         self.x = x
         self.y = y
         self.w = w
         self.h = h
 
     def dist_and_normal(self, p):
+        """Signed distance and normal for point p, where p is (x, y)."""
         # signed distance to rectangle expanded by DOT_R
         left = self.x - DOT_R
         right = self.x + self.w + DOT_R
@@ -189,12 +222,15 @@ class RectObstacle:
 
 class SegmentObstacle:
     def __init__(self, ax, ay, bx, by):
+        """Create line segment from point A(ax, ay) to point B(bx, by)."""
         self.ax = ax
         self.ay = ay
         self.bx = bx
         self.by = by
 
     def dist_and_normal(self, p):
+        """Signed distance and normal from point p=(x, y) to the segment."""
+        # Distance to nearest point on the segment (expanded by DOT_R).
         ax, ay = self.ax, self.ay
         bx, by = self.bx, self.by
         px, py = p
@@ -220,16 +256,20 @@ class SegmentObstacle:
 
 class Game:
     def __init__(self, root):
+        """Initialize UI and simulation state. Input: Tk root window."""
         self.root = root
+        # Top control bar + main drawing canvas.
         self.controls = tk.Frame(root, bg=BG)
         self.controls.pack(fill="x")
         self.canvas = tk.Canvas(root, width=WIDTH, height=HEIGHT, bg=BG, highlightthickness=0)
         self.canvas.pack()
 
+        # Dot state: position, velocity, and commanded acceleration.
         self.dot = [WIDTH * 0.5, HEIGHT * 0.5]
         self.vel = [0.0, 0.0]
         self.cmd = [0.0, 0.0]
 
+        # Runtime model parameters (user-adjustable).
         self.mode = 1
         self.slow_dist = SLOW_DIST
         self.stop_dist = STOP_DIST
@@ -238,6 +278,7 @@ class Game:
         self._init_scene()
 
         self.keys = set()
+        # CSV log for post-run analysis.
         self.log_file = open(CSV_PATH, "w", encoding="utf-8")
         self.log_file.write("t,mode,dist,speed,cmd_speed,x,y\n")
         self.t = 0.0
@@ -249,9 +290,11 @@ class Game:
         self.tick()
 
     def _init_controls(self):
+        """Build control widgets. No external inputs."""
         label_fg = FG
         self.controls.configure(padx=10, pady=6)
 
+        # Mode dropdown.
         self.mode_var = tk.StringVar(value=MODE_NAMES[self.mode])
         mode_label = tk.Label(self.controls, text="Control Model:", bg=BG, fg=label_fg)
         mode_label.grid(row=0, column=0, sticky="w")
@@ -264,6 +307,7 @@ class Game:
         mode_menu.configure(bg=BG, fg=label_fg, activebackground=BG, highlightthickness=0)
         mode_menu.grid(row=0, column=1, padx=(6, 16), sticky="w")
 
+        # Slowdown threshold slider.
         self.slow_var = tk.DoubleVar(value=self.slow_dist)
         slow_label = tk.Label(self.controls, text="Slow distance: start decelerating", bg=BG, fg=label_fg)
         slow_label.grid(row=0, column=2, sticky="w")
@@ -282,6 +326,7 @@ class Game:
         )
         slow_scale.grid(row=0, column=3, padx=(6, 16), sticky="w")
 
+        # Full-stop threshold slider.
         self.stop_var = tk.DoubleVar(value=self.stop_dist)
         stop_label = tk.Label(self.controls, text="Stop distance: full stop threshold", bg=BG, fg=label_fg)
         stop_label.grid(row=0, column=4, sticky="w")
@@ -300,6 +345,7 @@ class Game:
         )
         stop_scale.grid(row=0, column=5, padx=(6, 16), sticky="w")
 
+        # Repulsion gain slider for model 2.
         self.repel_var = tk.DoubleVar(value=self.repel_k)
         repel_label = tk.Label(self.controls, text="Repulsion strength (Model 2)", bg=BG, fg=label_fg)
         repel_label.grid(row=0, column=6, sticky="w")
@@ -319,24 +365,33 @@ class Game:
         repel_scale.grid(row=0, column=7, padx=(6, 0), sticky="w")
 
     def _on_mode_select(self, _value):
+        """Mode dropdown callback. Input: selected label string (unused directly)."""
+        # Map selected mode label back to its numeric id.
         for k, v in MODE_NAMES.items():
             if v == self.mode_var.get():
                 self.mode = k
                 return
 
     def _on_slow_change(self, _value):
+        """Slow-distance slider callback. Input: slider value string/number."""
+        # Keep slow_dist safely above stop_dist.
         self.slow_dist = max(self.stop_dist + 5.0, float(self.slow_var.get()))
         self.slow_var.set(self.slow_dist)
 
     def _on_stop_change(self, _value):
+        """Stop-distance slider callback. Input: slider value string/number."""
+        # Keep stop_dist positive and preserve slow > stop.
         self.stop_dist = max(1.0, float(self.stop_var.get()))
         self.slow_dist = max(self.stop_dist + 5.0, self.slow_dist)
         self.slow_var.set(self.slow_dist)
 
     def _on_repel_change(self, _value):
+        """Repulsion slider callback. Input: slider value string/number."""
         self.repel_k = max(0.0, float(self.repel_var.get()))
 
     def _init_scene(self):
+        """Reset obstacle scene and place the dot. No external inputs."""
+        # Build boundary walls and random interior obstacles.
         self.obstacles = [
             WallObstacle("left"),
             WallObstacle("right"),
@@ -348,6 +403,8 @@ class Game:
         self.place_dot()
 
     def spawn_random_circles(self, n):
+        """Spawn up to n random circles while respecting clearance."""
+        # Try repeatedly to place non-overlapping circles.
         for _ in range(n):
             placed = False
             for _attempt in range(200):
@@ -362,12 +419,16 @@ class Game:
                 break
 
     def can_place_circle(self, center, r):
+        """Check if a circle fits. Inputs: center=(x, y), radius r."""
+        # A circle is valid if it has at least CLEARANCE from every obstacle.
         for obs in self.obstacles:
             if distance_to_obstacle(center, obs, r) < CLEARANCE:
                 return False
         return True
 
     def place_dot(self):
+        """Place the player dot in free space. No external inputs."""
+        # Spawn the agent in free space; fallback to center if needed.
         for _attempt in range(500):
             x = random.randint(DOT_R + 10, WIDTH - DOT_R - 10)
             y = random.randint(DOT_R + 10, HEIGHT - DOT_R - 10)
@@ -380,12 +441,15 @@ class Game:
         self.dot[1] = HEIGHT * 0.5
 
     def is_free(self, p, r):
+        """Check if point p=(x, y) with radius r is collision-free."""
+        # Generic free-space query for a point with radius r.
         for obs in self.obstacles:
             if distance_to_obstacle(p, obs, r) < CLEARANCE:
                 return False
         return True
 
     def spawn_rects(self):
+        """Add fixed rectangle and segment obstacles. No external inputs."""
         # table-like blocks
         self.obstacles.append(RectObstacle(120, 380, 240, 40))
         self.obstacles.append(RectObstacle(520, 120, 220, 40))
@@ -395,6 +459,8 @@ class Game:
         self.obstacles.append(SegmentObstacle(600, 460, 820, 520))
 
     def on_key_down(self, e):
+        """Key-press handler. Input: Tk event e with e.keysym."""
+        # Track currently pressed keys for continuous movement.
         self.keys.add(e.keysym)
         if e.keysym in ["1", "2", "3", "4"]:
             self.mode = int(e.keysym)
@@ -416,24 +482,31 @@ class Game:
             self.adjust_repulse(1)
 
     def on_key_up(self, e):
+        """Key-release handler. Input: Tk event e with e.keysym."""
         if e.keysym in self.keys:
             self.keys.remove(e.keysym)
 
     def adjust_params(self, sign):
+        """Adjust slow distance. Input: sign is +1 or -1."""
+        # Increase/decrease slow distance via keyboard.
         self.slow_dist = max(self.stop_dist + 5.0, self.slow_dist + sign * PARAM_STEP)
         self.slow_var.set(self.slow_dist)
 
     def adjust_stop(self, sign):
+        """Adjust stop distance. Input: sign is +1 or -1."""
         self.stop_dist = max(1.0, self.stop_dist + sign * PARAM_STEP)
         self.slow_dist = max(self.stop_dist + 5.0, self.slow_dist)
         self.stop_var.set(self.stop_dist)
         self.slow_var.set(self.slow_dist)
 
     def adjust_repulse(self, sign):
+        """Adjust repulsion gain. Input: sign is +1 or -1."""
         self.repel_k = max(0.0, self.repel_k + sign * REPEL_STEP)
         self.repel_var.set(self.repel_k)
 
     def compute_cmd(self):
+        """Compute acceleration command from key state. No external inputs."""
+        # Convert key state into a normalized acceleration direction.
         ax = 0.0
         ay = 0.0
         if "Left" in self.keys or "a" in self.keys or "A" in self.keys:
@@ -446,10 +519,13 @@ class Game:
             ay += 1.0
 
         a = vec_norm((ax, ay))
+        # Scale unit direction by acceleration limit.
         self.cmd[0] = a[0] * ACCEL
         self.cmd[1] = a[1] * ACCEL
 
     def nearest_obstacle(self):
+        """Return nearest obstacle data: (distance d, normal n)."""
+        # Return closest signed distance and its surface normal.
         p = (self.dot[0], self.dot[1])
         best_d = 1e9
         best_n = (0.0, 0.0)
@@ -461,6 +537,8 @@ class Game:
         return best_d, best_n
 
     def repulsive_field(self):
+        """Compute summed repulsion and nearest obstacle info for current dot position."""
+        # Sum obstacle repulsion forces, and also track nearest obstacle.
         p = (self.dot[0], self.dot[1])
         total = (0.0, 0.0)
         min_d = 1e9
@@ -471,24 +549,61 @@ class Game:
                 min_d = d
                 min_n = n
             if d <= 0:
+                # Hard push while penetrating.
                 push = vec_mul(n, REPEL_MAX)
                 total = vec_add(total, push)
                 continue
             if d < REPEL_DIST:
+                # Inverse-distance repulsion with magnitude cap.
                 mag = self.repel_k * (1.0 / d - 1.0 / REPEL_DIST) / (d * d)
                 mag = clamp(mag, 0.0, REPEL_MAX)
                 total = vec_add(total, vec_mul(n, mag))
         return total, min_d, min_n
 
+    def _correct_position(self):
+        """Push dot out of penetrated obstacles to prevent clipping.
+
+        Inputs: none (uses current self.dot and self.obstacles).
+        
+        Iterates through all obstacles and checks for penetration (distance < 0).
+        If penetrated, pushes the dot back out along the surface normal.
+        Multiple iterations handle concave corners where multiple obstacles
+        may constrain the dot simultaneously.
+        """
+        p = [self.dot[0], self.dot[1]]
+        
+        # Multiple iterations to handle corners with multiple touching obstacles
+        for _iteration in range(3):
+            for obs in self.obstacles:
+                d, n = obs.dist_and_normal(p)
+                if d < 0:  # Penetrated
+                    # Push dot back to surface plus small clearance
+                    push_dist = -d + 0.1
+                    p[0] += n[0] * push_dist
+                    p[1] += n[1] * push_dist
+        
+        self.dot[0] = p[0]
+        self.dot[1] = p[1]
+
     def apply_model(self, d, n, repulse):
+        """Apply active control model.
+
+        Inputs:
+        d: nearest signed distance to obstacle
+        n: nearest obstacle normal (unit vector)
+        repulse: summed repulsive velocity/force-like vector
+        """
+        # Start from current velocity command, then modify by selected model.
         v_cmd = (self.vel[0], self.vel[1])
         v_next = v_cmd
 
         if self.mode == 1:
+            # Scale speed down as distance approaches stop threshold.
             s = clamp((d - self.stop_dist) / max(1e-6, (self.slow_dist - self.stop_dist)), 0.0, 1.0)
             v_next = vec_mul(v_cmd, s)
 
         elif self.mode == 2:
+            # Add synthesized repulsive field directly to velocity.
             v_next = vec_add(v_cmd, repulse)
 
         elif self.mode == 3:
@@ -516,6 +631,7 @@ class Game:
                         v_next = vec_add(v_next, vec_mul(n_obs, into))
 
         elif self.mode == 4:
+            # Dampen only the velocity component along obstacle normal.
             s = clamp((d - self.stop_dist) / max(1e-6, (self.slow_dist - self.stop_dist)), 0.0, 1.0)
             vn = vec_mul(n, vec_dot(v_cmd, n))
             vt = vec_sub(v_cmd, vn)
@@ -523,10 +639,13 @@ class Game:
 
         speed = vec_len(v_next)
         if speed > MAX_SPEED:
+            # Enforce global speed cap.
             v_next = vec_mul(vec_norm(v_next), MAX_SPEED)
         return v_next
 
     def update_physics(self):
+        """Advance simulation one fixed timestep. No external inputs."""
+        # Recompute commanded acceleration from current key state.
         self.compute_cmd()
 
         # integrate joystick accel into velocity command
@@ -539,10 +658,14 @@ class Game:
             self.vel[1] *= 0.92
 
         repulse, d, n = self.repulsive_field()
+        # Apply selected collision-avoidance model to produce next velocity.
         v_next = self.apply_model(d, n, repulse)
 
         self.dot[0] += v_next[0] * DT
         self.dot[1] += v_next[1] * DT
+
+        # Correct position if penetrated any obstacles
+        self._correct_position()
 
         # keep inside bounds to avoid drift
         self.dot[0] = clamp(self.dot[0], DOT_R, WIDTH - DOT_R)
@@ -553,8 +676,11 @@ class Game:
         self.vel[1] = v_next[1]
 
     def draw(self):
+        """Render current frame to canvas. No external inputs."""
+        # Clear and redraw entire frame.
         self.canvas.delete("all")
 
+        # Draw obstacles with type-specific primitives.
         for obs in self.obstacles:
             if isinstance(obs, CircleObstacle):
                 x0 = obs.x - obs.r
@@ -584,6 +710,7 @@ class Game:
         )
 
         d, _n = self.nearest_obstacle()
+        # HUD with mode and controls.
         info = f"Mode {self.mode}: {MODE_NAMES[self.mode]}   |   d = {d:.1f}"
         help1 = "Move: Arrows/WASD   |   Randomize: R"
         self.canvas.create_text(12, 12, anchor="nw", fill=FG, text=info, font=("Helvetica", 12))
@@ -593,6 +720,8 @@ class Game:
             self.canvas.create_text(12, 52, anchor="nw", fill=WARN, text="Contact zone", font=("Helvetica", 11))
 
     def tick(self):
+        """Main loop callback called once per frame. No external inputs."""
+        # Main fixed-step loop: simulate, log, render, schedule next frame.
         self.update_physics()
         # log
         d, _n = self.nearest_obstacle()
@@ -606,6 +735,7 @@ class Game:
         self.root.after(int(1000 / FPS), self.tick)
 
     def on_close(self):
+        """Window-close handler. No inputs; flushes log and destroys root."""
         try:
             self.log_file.flush()
             self.log_file.close()
@@ -614,6 +744,7 @@ class Game:
 
 
 if __name__ == "__main__":
+    # Fail fast with a helpful message if Tk support is missing.
     if tk is None:
         raise RuntimeError("tkinter is not available. Please install Tk support for Python.")
     root = tk.Tk()
