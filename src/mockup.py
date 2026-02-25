@@ -39,6 +39,7 @@ MODE_NAMES = {
     2: "Repulsive Field",
     3: "Project Normal",
     4: "Damped Barrier",
+    5: "Component Blocking",
 }
 
 PARAM_STEP = 5.0
@@ -473,7 +474,7 @@ class Game:
         """Key-press handler. Input: Tk event e with e.keysym."""
         # Track currently pressed keys for continuous movement.
         self.keys.add(e.keysym)
-        if e.keysym in ["1", "2", "3", "4"]:
+        if e.keysym in ["1", "2", "3", "4", "5"]:
             self.mode = int(e.keysym)
             self.mode_var.set(MODE_NAMES[self.mode])
         if e.keysym in ["r", "R"]:
@@ -648,6 +649,44 @@ class Game:
             vt = vec_sub(v_cmd, vn)
             v_next = vec_add(vec_mul(vn, s), vt)
 
+        elif self.mode == 5:
+            # COMPONENT BLOCKING mode: Cancel x/y components that point into contacted obstacles
+            # 
+            # - Identify all obstacles currently in collision (d < 0)
+            # - For each colliding obstacle, evaluate whether each velocity component (x, y)
+            #   points into the obstacle's "no-go" direction (opposite its surface normal)
+            # - If a component points into a blocked direction, cancel it (set to 0)
+            # - Keep components that point away from or tangent to blocked directions
+            # 
+            # Result: Multi-obstacle handling without full projection; loose tangential motion
+            v_next = (v_cmd[0], v_cmd[1])
+            p = (self.dot[0], self.dot[1])
+            
+            # Collect all currently colliding obstacles
+            colliding_normals = []
+            for obs in self.obstacles:
+                d_obs, n_obs = obs.dist_and_normal(p)
+                if d_obs < 0:  # In collision
+                    colliding_normals.append(n_obs)
+            
+            # Check each component against all blocking directions
+            # For x-component: construct velocity with only x, check against all normals
+            if colliding_normals:
+                vx_test = (v_next[0], 0.0)
+                for n_obs in colliding_normals:
+                    # If x-component points into obstacle (negative dot with outward normal)
+                    if vec_dot(vx_test, n_obs) < 0:
+                        v_next = (0.0, v_next[1])
+                        break
+                
+                # For y-component: construct velocity with only y, check against all normals
+                vy_test = (0.0, v_next[1])
+                for n_obs in colliding_normals:
+                    # If y-component points into obstacle (negative dot with outward normal)
+                    if vec_dot(vy_test, n_obs) < 0:
+                        v_next = (v_next[0], 0.0)
+                        break
+
         speed = vec_len(v_next)
         if speed > MAX_SPEED:
             # Enforce global speed cap.
@@ -676,7 +715,7 @@ class Game:
         self.dot[1] += v_next[1] * DT
 
         # Correct position if penetrated any obstacles
-        self._correct_position()
+        # self._correct_position()
 
         # keep inside bounds to avoid drift
         self.dot[0] = clamp(self.dot[0], DOT_R, WIDTH - DOT_R)
@@ -719,6 +758,77 @@ class Game:
             fill=ACCENT,
             outline="",
         )
+
+        # Visualize blocking vectors
+        if self.mode == 3:
+            # Mode 3: Show normals from obstacles within slow_dist
+            p = (self.dot[0], self.dot[1])
+            vector_length = 40
+            for obs in self.obstacles:
+                d_obs, n_obs = obs.dist_and_normal(p)
+                if d_obs < self.slow_dist:
+                    # Draw arrow from dot center along the normal
+                    end_x = self.dot[0] + n_obs[0] * vector_length
+                    end_y = self.dot[1] + n_obs[1] * vector_length
+                    self.canvas.create_line(
+                        self.dot[0], self.dot[1],
+                        end_x, end_y,
+                        fill="#6b9bff", width=2
+                    )
+                    # Draw small arrowhead
+                    arrow_size = 8
+                    arrow_angle = 0.5
+                    perp_x = -n_obs[1]
+                    perp_y = n_obs[0]
+                    back_x = self.dot[0] + n_obs[0] * (vector_length - arrow_size)
+                    back_y = self.dot[1] + n_obs[1] * (vector_length - arrow_size)
+                    self.canvas.create_line(
+                        end_x, end_y,
+                        back_x + perp_x * arrow_size * arrow_angle,
+                        back_y + perp_y * arrow_size * arrow_angle,
+                        fill="#6b9bff", width=2
+                    )
+                    self.canvas.create_line(
+                        end_x, end_y,
+                        back_x - perp_x * arrow_size * arrow_angle,
+                        back_y - perp_y * arrow_size * arrow_angle,
+                        fill="#6b9bff", width=2
+                    )
+        
+        elif self.mode == 5:
+            # Mode 5: Show blocking normals only when in collision
+            p = (self.dot[0], self.dot[1])
+            vector_length = 40  # Length of drawn vectors
+            for obs in self.obstacles:
+                d_obs, n_obs = obs.dist_and_normal(p)
+                if d_obs < 0:  # In collision
+                    # Draw arrow from dot center along the normal (blocking direction)
+                    end_x = self.dot[0] + n_obs[0] * vector_length
+                    end_y = self.dot[1] + n_obs[1] * vector_length
+                    self.canvas.create_line(
+                        self.dot[0], self.dot[1],
+                        end_x, end_y,
+                        fill="#ff6b6b", width=2
+                    )
+                    # Draw small arrowhead
+                    arrow_size = 8
+                    arrow_angle = 0.5
+                    perp_x = -n_obs[1]
+                    perp_y = n_obs[0]
+                    back_x = self.dot[0] + n_obs[0] * (vector_length - arrow_size)
+                    back_y = self.dot[1] + n_obs[1] * (vector_length - arrow_size)
+                    self.canvas.create_line(
+                        end_x, end_y,
+                        back_x + perp_x * arrow_size * arrow_angle,
+                        back_y + perp_y * arrow_size * arrow_angle,
+                        fill="#ff6b6b", width=2
+                    )
+                    self.canvas.create_line(
+                        end_x, end_y,
+                        back_x - perp_x * arrow_size * arrow_angle,
+                        back_y - perp_y * arrow_size * arrow_angle,
+                        fill="#ff6b6b", width=2
+                    )
 
         d, _n = self.nearest_obstacle()
         # HUD with mode and controls.
